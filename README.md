@@ -10,8 +10,9 @@ on Wayland and X11. Lyrics come from [LRCLIB](https://lrclib.net), with no API k
   Most lyrics only have per-line timing, so word timing is estimated within each line.
 - **↑ / ↓**: bigger / smaller text.
 - **Shift+1 … Shift+9**: how many words to show at once in word view (default 1).
+- **Double-tap Shift**: swap to black text on white (and back).
 - Plain (untimed) lyrics scroll with **j/k**, **PgUp/PgDn**, **Space** or the mouse wheel.
-- Size, words-at-once and view are remembered in `~/.config/lyrics-overlay/settings.json`.
+- Size, words-at-once, view and colors are remembered in `~/.config/lyrics-overlay/settings.json`.
 - Lyrics are cached in `~/.cache/lyrics-overlay/`.
 - There's no background process; it exits fully when closed.
 

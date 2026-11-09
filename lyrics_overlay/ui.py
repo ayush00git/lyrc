@@ -15,7 +15,16 @@ window.lyrics, window.lyrics scrolledwindow, window.lyrics viewport { background
 .lyrics label.plain { color: #ffffff; }
 .lyrics label.hint { color: rgba(255,255,255,0.6); font-size: 20px; font-weight: 600;
                      background: rgba(255,255,255,0.08); border-radius: 12px; padding: 6px 16px; }
+
+/* Inverted (double-tap Shift): white background, black text. */
+window.lyrics.inverted, window.lyrics.inverted scrolledwindow,
+window.lyrics.inverted viewport { background: #ffffff; }
+.lyrics.inverted label, .lyrics.inverted label.plain,
+.lyrics.inverted label.line.current { color: #000000; }
+.lyrics.inverted label.line { color: rgba(0,0,0,0.28); }
+.lyrics.inverted label.hint { color: rgba(0,0,0,0.6); background: rgba(0,0,0,0.08); }
 """
+DOUBLE_TAP_S = 0.4
 WORD_FADE_S = 0.09  # quick fade-in for each new word
 
 
@@ -66,6 +75,10 @@ class LyricsWindow(Gtk.ApplicationWindow):
 
         self.prefs = settings.load()
         self.word_mode = self.prefs["word_mode"]  # 'l' toggles
+        if self.prefs["inverted"]:
+            self.add_css_class("inverted")
+        self.shift_clean = False  # Shift is down and no other key was pressed
+        self.last_shift_tap = 0.0
         self.lines = []        # [(seconds, Gtk.Label)] in synced mode
         self.words = []        # [(seconds, word)]
         self.current = -1
@@ -77,6 +90,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
 
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self.on_key)
+        keys.connect("key-released", self.on_key_release)
         self.add_controller(keys)
         self.add_tick_callback(self.on_tick)
         self.show_message("Waiting for a player…")
@@ -252,7 +266,25 @@ class LyricsWindow(Gtk.ApplicationWindow):
         self.hint_timer = 0
         return False
 
+    def on_key_release(self, _ctrl, keyval, _code, _state):
+        """Double-tap Shift (with no other key in between) toggles colors."""
+        if keyval not in (Gdk.KEY_Shift_L, Gdk.KEY_Shift_R) or not self.shift_clean:
+            return
+        self.shift_clean = False
+        now = GLib.get_monotonic_time() / 1e6
+        if now - self.last_shift_tap < DOUBLE_TAP_S:
+            self.last_shift_tap = 0.0
+            inverted = not self.prefs["inverted"]
+            (self.add_css_class if inverted else self.remove_css_class)("inverted")
+            self._set("inverted", inverted, "Light mode" if inverted else "Dark mode")
+        else:
+            self.last_shift_tap = now
+
     def on_key(self, ctrl, keyval, code, state):
+        if keyval in (Gdk.KEY_Shift_L, Gdk.KEY_Shift_R):
+            self.shift_clean = True
+            return False
+        self.shift_clean, self.last_shift_tap = False, 0.0  # e.g. Shift+3 is not a tap
         if keyval in (Gdk.KEY_Escape, Gdk.KEY_q, Gdk.KEY_Q):
             self.get_application().quit()
             return True
