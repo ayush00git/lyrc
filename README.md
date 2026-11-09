@@ -1,10 +1,10 @@
-# lyrics-overlay
+# lyrc
 
 A fullscreen black screen showing synced lyrics for whatever is playing.
 Works with Spotify, YouTube and YouTube Music in Chrome (any MPRIS2 player, really),
 on Wayland and X11. Lyrics come from [LRCLIB](https://lrclib.net), with no API key.
 
-- Run `lyrics-overlay` to open it. Run it again (or press **Esc** / **q**) to close it.
+- The command is `lyrics-overlay`. Run it to open lyrc. Run it again (or press **Esc** / **q**) to close it.
 - Lyrics show **one word at a time** in big text. Press **l** to switch to line view
   (current line white, others dimmed, scrolling with the song).
   Most lyrics only have per-line timing, so word timing is estimated within each line.
