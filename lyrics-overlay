@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Launcher: runs the package that sits next to this script (follows symlinks).
+DIR="$(dirname "$(readlink -f "$0")")"
+PYTHONPATH="$DIR${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m lyrics_overlay "$@"
