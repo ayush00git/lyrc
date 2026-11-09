@@ -16,6 +16,7 @@ on Wayland and X11. Lyrics come from [LRCLIB](https://lrclib.net), with no API k
 - Lyrics are cached in `~/.cache/lyrics-overlay/`.
 - While music is playing, the screen won't dim or lock. Pausing gives normal idle back.
 - There's no background process; it exits fully when closed.
+- In `top` / System Monitor it shows up as **`lyrc`**.
 
 ## Screenshots
 
