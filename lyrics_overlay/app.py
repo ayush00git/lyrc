@@ -1,6 +1,7 @@
 from gi.repository import Gtk
 
 from .log import debug
+from .metadata import clean
 from .player import PlayerWatcher
 from .ui import LyricsWindow
 
@@ -34,5 +35,9 @@ class App(Gtk.Application):
             debug(f"raw: {w.track!r}")
         if w.track is None:
             self.window.status.set_label("Waiting for a player…")
-        else:
-            self.window.status.set_label(f"{w.track.artist}\n{w.track.title}\n({w.status})")
+            return
+        t = w.track
+        artist, title = clean(w.name, t.artist, t.title, t.album, t.url)
+        if kind in ("player", "track"):
+            debug(f"clean: artist={artist!r} title={title!r}")
+        self.window.status.set_label(f"{artist}\n{title}\n({w.status})")
