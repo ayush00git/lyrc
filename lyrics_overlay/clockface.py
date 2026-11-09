@@ -1,11 +1,15 @@
-"""Full-screen clock: big time, date, and a ring whose arc sweeps smoothly with the seconds."""
+"""Full-screen digital clock: HH:MM:SS across the screen, date underneath."""
 
-import math
+import re
 
 import gi
 
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gio, GLib, Gtk, Pango, PangoCairo  # noqa: E402
+
+WIDTH_FILL = 0.90   # time spans 90% of the screen width...
+HEIGHT_MAX = 0.45   # ...unless that would make it taller than 45% of the height
+SECONDS_ALPHA = "55%"
 
 
 def _uses_12h():
@@ -23,91 +27,60 @@ class ClockFace(Gtk.DrawingArea):
         super().__init__(hexpand=True, vexpand=True)
         self.inverted = False
         self.twelve_hour = _uses_12h()
+        self.last_second = None
         self.set_draw_func(self._draw)
 
-    def _colors(self):
-        fg = (0.0, 0.0, 0.0) if self.inverted else (1.0, 1.0, 1.0)
-        return {
-            "bg": (1.0, 1.0, 1.0) if self.inverted else (0.0, 0.0, 0.0),
-            "time": (*fg, 1.0),
-            "date": (*fg, 0.45),
-            "seconds": (*fg, 0.55),
-            "track": (*fg, 0.08),
-            "arc": (*fg, 0.42),
-            "dot": (*fg, 1.0),
-        }
+    def tick(self):
+        """Call every frame; redraws only when the second changes."""
+        s = GLib.DateTime.new_now_local().get_second()
+        if s != self.last_second:
+            self.last_second = s
+            self.queue_draw()
 
-    def _layout(self, cr, text, px, weight):
+    def _layout(self, cr, px, weight):
         layout = PangoCairo.create_layout(cr)
         font = Pango.FontDescription.from_string("Sans")
         font.set_absolute_size(px * Pango.SCALE)
         font.set_weight(weight)
         layout.set_font_description(font)
-        attrs = Pango.AttrList()
-        attrs.insert(Pango.attr_font_features_new("tnum"))  # equal-width digits: no jitter
-        layout.set_attributes(attrs)
-        layout.set_text(text, -1)
         return layout
 
-    def _text(self, cr, text, px, weight, rgba, cx, cy):
-        layout = self._layout(cr, text, px, weight)
-        _ink, logical = layout.get_pixel_extents()
-        cr.set_source_rgba(*rgba)
-        cr.move_to(cx - logical.width / 2, cy - logical.height / 2)
-        PangoCairo.show_layout(cr, layout)
+    def _markup(self, hm, ss):
+        """HH:MM in full color, :SS dimmed; equal-width digits so nothing shifts."""
+        color = "#000000" if self.inverted else "#ffffff"
+        return (f"<span font_features='tnum' foreground='{color}'>{hm}"
+                f"<span alpha='{SECONDS_ALPHA}'>:{ss}</span></span>")
 
     def _draw(self, _area, cr, w, h):
-        c = self._colors()
-        cr.set_source_rgb(*c["bg"])
+        fg = (0.0, 0.0, 0.0) if self.inverted else (1.0, 1.0, 1.0)
+        cr.set_source_rgb(*((1.0, 1.0, 1.0) if self.inverted else (0.0, 0.0, 0.0)))
         cr.paint()
 
         now = GLib.DateTime.new_now_local()
-        sec = now.get_second() + now.get_microsecond() / 1e6
-        cx, cy = w / 2, h / 2
-        r = min(w, h) * 0.36
-        line = max(2.0, r * 0.012)
+        hm = now.format("%I:%M" if self.twelve_hour else "%H:%M")
+        if self.twelve_hour:
+            hm = hm.lstrip("0")
 
-        # Ring track, then the sweeping arc. Even minutes fill the ring,
-        # odd minutes empty it, so it never snaps back to zero.
-        top = -math.pi / 2
-        frac = sec / 60
-        cr.set_line_width(line)
-        cr.set_line_cap(1)  # round
-        cr.set_source_rgba(*c["track"])
-        cr.arc(cx, cy, r, 0, 2 * math.pi)
-        cr.stroke()
-        if now.get_minute() % 2 == 0:
-            start, end = top, top + frac * 2 * math.pi
-        else:
-            start, end = top + frac * 2 * math.pi, top + 2 * math.pi
-        if end - start > 0.001:
-            cr.set_source_rgba(*c["arc"])
-            cr.arc(cx, cy, r, start, end)
-            cr.stroke()
-        # Bright dot at the moving tip.
-        tip = top + frac * 2 * math.pi
-        cr.set_source_rgba(*c["dot"])
-        cr.arc(cx + r * math.cos(tip), cy + r * math.sin(tip), line * 2.2, 0, 2 * math.pi)
-        cr.fill()
+        # Fit to the screen: measure a same-shape sample at 100px, then scale.
+        probe = self._layout(cr, 100, Pango.Weight.HEAVY)
+        probe.set_markup(self._markup(re.sub(r"\d", "0", hm), "00"), -1)
+        pw, ph = probe.get_pixel_size()
+        px = min(100 * w * WIDTH_FILL / max(pw, 1), 100 * h * HEIGHT_MAX / max(ph, 1))
 
-        fmt = "%I:%M" if self.twelve_hour else "%H:%M"
-        time_text = now.format(fmt).lstrip("0") if self.twelve_hour else now.format(fmt)
-        # Big HH:MM with smaller gray seconds beside it, sharing a baseline.
-        big = self._layout(cr, time_text, r * 0.42, Pango.Weight.HEAVY)
-        small = self._layout(cr, now.format("%S"), r * 0.17, Pango.Weight.BOLD)
-        big_w, big_h = big.get_pixel_size()
-        small_w = self._layout(cr, "00", r * 0.17, Pango.Weight.BOLD).get_pixel_size()[0]
-        gap = r * 0.04
-        x = cx - (big_w + gap + small_w) / 2
-        y = cy - r * 0.06 - big_h / 2
-        baseline = y + big.get_baseline() / Pango.SCALE
-        cr.set_source_rgba(*c["time"])
-        cr.move_to(x, y)
-        PangoCairo.show_layout(cr, big)
-        cr.set_source_rgba(*c["seconds"])
-        cr.move_to(x + big_w + gap, baseline - small.get_baseline() / Pango.SCALE)
-        PangoCairo.show_layout(cr, small)
+        time = self._layout(cr, px, Pango.Weight.HEAVY)
+        time.set_markup(self._markup(hm, now.format("%S")), -1)
+        tw, th = time.get_pixel_size()
+
         sub = now.format("%A, %-d %B")
         if self.twelve_hour:
             sub = now.format("%p") + "  ·  " + sub
-        self._text(cr, sub, r * 0.075, Pango.Weight.SEMIBOLD, c["date"], cx, cy + r * 0.30)
+        date = self._layout(cr, max(14, px * 0.14), Pango.Weight.SEMIBOLD)
+        date.set_text(sub, -1)
+        dw, dh = date.get_pixel_size()
+
+        top = (h - (th + dh)) / 2
+        cr.move_to((w - tw) / 2, top)
+        PangoCairo.show_layout(cr, time)
+        cr.set_source_rgba(*fg, 0.45)
+        cr.move_to((w - dw) / 2, top + th)
+        PangoCairo.show_layout(cr, date)

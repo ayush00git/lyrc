@@ -202,7 +202,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
             else:
                 self._update_line(now)
         if self.clock_mode:
-            self.clockface.queue_draw()  # redraw every frame: smooth seconds sweep
+            self.clockface.tick()  # redraws when the second changes
 
         t = frame_clock.get_frame_time() / 1e6
         if self.word_shown_at is not None:
@@ -306,6 +306,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
             inverted = not self.prefs["inverted"]
             (self.add_css_class if inverted else self.remove_css_class)("inverted")
             self.clockface.inverted = inverted
+            self.clockface.queue_draw()
             self._set("inverted", inverted, "Light mode" if inverted else "Dark mode")
         else:
             self.last_shift_tap = now
