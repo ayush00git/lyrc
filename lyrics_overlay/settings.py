@@ -5,7 +5,7 @@ import os
 
 PATH = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
                     "lyrics-overlay", "settings.json")
-DEFAULTS = {"font_scale": 1.0, "words_at_once": 1, "word_mode": True, "inverted": False}
+DEFAULTS = {"font_scale": 1.0, "words_at_once": 1, "word_mode": True, "inverted": False, "clock_scale": 1.0}
 
 
 def load():

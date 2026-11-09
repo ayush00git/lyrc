@@ -83,6 +83,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
         if self.prefs["inverted"]:
             self.add_css_class("inverted")
         self.clockface.inverted = self.prefs["inverted"]
+        self.clockface.scale = self.prefs["clock_scale"]
         self.shift_clean = False  # Shift is down and no other key was pressed
         self.last_shift_tap = 0.0
         self.lines = []        # [(seconds, Gtk.Label)] in synced mode
@@ -319,7 +320,14 @@ class LyricsWindow(Gtk.ApplicationWindow):
         if keyval in (Gdk.KEY_Escape, Gdk.KEY_q, Gdk.KEY_Q):
             self.get_application().quit()
             return True
-        # Up/Down: font size.
+        # Up/Down: clock size while the clock is shown, else lyrics size.
+        if keyval in (Gdk.KEY_Up, Gdk.KEY_Down) and self.clock_mode:
+            k = self.prefs["clock_scale"] * (1.1 if keyval == Gdk.KEY_Up else 1 / 1.1)
+            k = round(min(self.clockface.max_scale, max(0.3, k)), 3)
+            self.clockface.scale = k
+            self.clockface.queue_draw()
+            self._set("clock_scale", k, f"Clock size {round(k * 100)}%")
+            return True
         if keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
             k = self.prefs["font_scale"] * (1.1 if keyval == Gdk.KEY_Up else 1 / 1.1)
             k = round(min(3.0, max(0.4, k)), 3)

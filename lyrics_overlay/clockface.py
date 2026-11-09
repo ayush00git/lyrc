@@ -7,8 +7,10 @@ import gi
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gio, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
-WIDTH_FILL = 0.90   # time spans 90% of the screen width...
+WIDTH_FILL = 0.90   # at 100% size the time spans 90% of the screen width...
 HEIGHT_MAX = 0.45   # ...unless that would make it taller than 45% of the height
+WIDTH_LIMIT = 0.95  # Up/Down can grow it up to these limits, never off-screen
+HEIGHT_LIMIT = 0.80
 SECONDS_ALPHA = "55%"
 
 
@@ -28,6 +30,8 @@ class ClockFace(Gtk.DrawingArea):
         self.inverted = False
         self.twelve_hour = _uses_12h()
         self.last_second = None
+        self.scale = 1.0      # Up/Down in clock mode
+        self.max_scale = 1.6  # updated on each draw so Up stops at the screen edge
         self.set_draw_func(self._draw)
 
     def tick(self):
@@ -65,7 +69,11 @@ class ClockFace(Gtk.DrawingArea):
         probe = self._layout(cr, 100, Pango.Weight.HEAVY)
         probe.set_markup(self._markup(re.sub(r"\d", "0", hm), "00"), -1)
         pw, ph = probe.get_pixel_size()
-        px = min(100 * w * WIDTH_FILL / max(pw, 1), 100 * h * HEIGHT_MAX / max(ph, 1))
+        pw, ph = max(pw, 1), max(ph, 1)
+        fit = min(100 * w * WIDTH_FILL / pw, 100 * h * HEIGHT_MAX / ph)
+        limit = min(100 * w * WIDTH_LIMIT / pw, 100 * h * HEIGHT_LIMIT / ph)
+        self.max_scale = limit / fit
+        px = min(fit * self.scale, limit)
 
         time = self._layout(cr, px, Pango.Weight.HEAVY)
         time.set_markup(self._markup(hm, now.format("%S")), -1)

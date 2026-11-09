@@ -8,28 +8,16 @@ on Wayland and X11. Lyrics come from [LRCLIB](https://lrclib.net), with no API k
 - Lyrics show **one word at a time** in big text. Press **l** to switch to line view
   (current line white, others dimmed, scrolling with the song).
   Most lyrics only have per-line timing, so word timing is estimated within each line.
-- **↑ / ↓**: bigger / smaller text.
+- **↑ / ↓**: bigger / smaller text (on the clock screen: bigger / smaller clock).
 - **Shift+1 … Shift+9**: how many words to show at once in word view (default 1).
 - **Double-tap Shift**: swap to black text on white (and back).
 - **Shift+C**: full-screen clock instead of lyrics (and back). The screen stays awake while it's shown.
 - Plain (untimed) lyrics scroll with **j/k**, **PgUp/PgDn**, **Space** or the mouse wheel.
-- Size, words-at-once, view and colors are remembered in `~/.config/lyrics-overlay/settings.json`.
+- Sizes, words-at-once, view and colors are remembered in `~/.config/lyrics-overlay/settings.json`.
 - Lyrics are cached in `~/.cache/lyrics-overlay/`.
 - While music is playing, the screen won't dim or lock. Pausing gives normal idle back.
 - There's no background process; it exits fully when closed.
 - In `top` / System Monitor it shows up as **`lyrc`**.
-
-## Screenshots
-
-| Word view (default) | Shift+3: three words at a time |
-|---|---|
-| ![Word view](docs/word-view.png) | ![Three words](docs/three-words.png) |
-| **Line view (`l`)** | **Light mode (double-tap Shift)** |
-| ![Line view](docs/line-view.png) | ![Light mode](docs/light-mode.png) |
-| **Clock (Shift+C)** | |
-| ![Clock](docs/clock.png) | |
-
-<sub>Rendered by the app itself (with sample lyrics).</sub>
 
 ## Install
 
@@ -50,6 +38,18 @@ Then, from this folder:
 This copies the app to `~/.local/share/lyrics-overlay` and links the command into
 `~/.local/bin` (no root needed). Make sure `~/.local/bin` is in your `PATH`.
 To uninstall, run `rm -rf ~/.local/share/lyrics-overlay ~/.local/bin/lyrics-overlay`.
+
+## Screenshots
+
+| Word view (default) | Shift+3: three words at a time |
+|---|---|
+| ![Word view](docs/word-view.png) | ![Three words](docs/three-words.png) |
+| **Line view (`l`)** | **Light mode (double-tap Shift)** |
+| ![Line view](docs/line-view.png) | ![Light mode](docs/light-mode.png) |
+| **Clock (Shift+C)** | **Clock, light mode** |
+| ![Clock](docs/clock.png) | ![Clock, light mode](docs/clock-light.png) |
+
+<sub>Rendered by the app itself (with sample lyrics).</sub>
 
 ## Keyboard shortcut
 
