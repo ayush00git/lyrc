@@ -55,6 +55,25 @@ Use the full path, since shortcuts don't always see your shell's `PATH`:
 **GNOME:** Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts → **+**.
 Name: `Lyrics`, Command: the path above. Then set a shortcut, e.g. Super+Y.
 
+Or from a terminal (sets **Super+Y**, keeps your other custom shortcuts):
+
+```sh
+K=org.gnome.settings-daemon.plugins.media-keys
+B=/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/lyrics-overlay/
+gsettings set $K.custom-keybinding:$B name 'Lyrics overlay'
+gsettings set $K.custom-keybinding:$B command "$HOME/.local/bin/lyrics-overlay"
+gsettings set $K.custom-keybinding:$B binding '<Super>y'
+L=$(gsettings get $K custom-keybindings)
+case "$L" in
+  *"$B"*) ;;
+  "@as []"|"[]") gsettings set $K custom-keybindings "['$B']" ;;
+  *) gsettings set $K custom-keybindings "${L%]}, '$B']" ;;
+esac
+```
+
+To use another key, change `'<Super>y'` (e.g. `'<Control><Alt>l'`). Avoid plain Ctrl+L,
+since apps use it (browser address bar, clearing the terminal).
+
 **KDE Plasma:** System Settings → Keyboard → Shortcuts → **Add New** → **Command or Script**.
 Enter the path above, then assign a key.
 
