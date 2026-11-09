@@ -79,7 +79,7 @@ class App(Gtk.Application):
         artist, title = song
         debug(f"lyrics: {result!r}")
         if result.synced:
-            self.window.show_synced(result.synced, self.clock.now)
+            self.window.show_synced(result.synced, result.words, self.clock.now)
         elif result.plain:
             self.window.show_plain(result.plain)
         elif result.source == "error":

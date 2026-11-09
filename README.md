@@ -5,7 +5,9 @@ Works with Spotify, YouTube and YouTube Music in Chrome (any MPRIS2 player, real
 on Wayland and X11. Lyrics come from [LRCLIB](https://lrclib.net), with no API key.
 
 - Run `lyrics-overlay` to open it. Run it again (or press **Esc** / **q**) to close it.
-- The current line is white, the others are dimmed, and it scrolls with the song.
+- Lyrics show **one word at a time** in big text. Press **l** to switch to line view
+  (current line white, others dimmed, scrolling with the song).
+  Most lyrics only have per-line timing, so word timing is estimated within each line.
 - Plain (untimed) lyrics scroll with **↑/↓**, **j/k**, **PgUp/PgDn**, **Space** or the mouse wheel.
 - Lyrics are cached in `~/.cache/lyrics-overlay/`.
 - There's no background process; it exits fully when closed.

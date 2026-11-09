@@ -19,9 +19,10 @@ MISS_TTL = 24 * 3600  # retry "not found" songs after a day
 
 
 class Lyrics:
-    def __init__(self, source, synced=None, plain=None):
+    def __init__(self, source, lrc="", plain=None):
         self.source = source            # cache / lrclib-get / lrclib-search / none / error
-        self.synced = synced or []      # [(seconds, text), ...]
+        self.synced = parse_lrc(lrc)    # [(seconds, line), ...]
+        self.words = word_timeline(parse_lrc(lrc, keep_word_tags=True))  # [(seconds, word), ...]
         self.plain = plain or ""
 
     def __repr__(self):
@@ -32,11 +33,13 @@ class Lyrics:
 # ---- LRC parsing ----
 
 TAG = re.compile(r"\[(\d+):(\d+(?:[.:]\d+)?)\]")
+WORD_TAG = re.compile(r"<(\d+):(\d+(?:\.\d+)?)>")
 OFFSET = re.compile(r"\[offset:\s*([+-]?\d+)\]", re.I)
 
 
-def parse_lrc(text):
-    """'[01:02.50]line' -> [(62.5, 'line'), ...] sorted by time."""
+def parse_lrc(text, keep_word_tags=False):
+    """'[01:02.50]line' -> [(62.5, 'line'), ...] sorted by time.
+    Enhanced LRC word stamps ('<01:02.80>word') are stripped unless kept."""
     m = OFFSET.search(text or "")
     offset = int(m.group(1)) / 1000 if m else 0.0
     out = []
@@ -45,8 +48,45 @@ def parse_lrc(text):
         while (m := TAG.match(raw)):
             stamps.append(int(m.group(1)) * 60 + float(m.group(2).replace(":", ".")))
             raw = raw[m.end():]
+        if not keep_word_tags:
+            raw = WORD_TAG.sub("", raw)
         for t in stamps:
-            out.append((max(0.0, t - offset), raw.strip()))
+            out.append((max(0.0, t - offset), re.sub(r"\s+", " ", raw).strip()))
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+WORD_PACE = 0.42  # max seconds per word when spreading a line over its duration
+
+
+def word_timeline(lines):
+    """Split timed lines into timed words. Uses enhanced-LRC word stamps when
+    present, otherwise spreads words over the line, weighted by length."""
+    out = []
+    for i, (t0, text) in enumerate(lines):
+        t1 = lines[i + 1][0] if i + 1 < len(lines) else t0 + 5.0
+        if WORD_TAG.search(text):
+            stamp = t0
+            for part in re.split(r"(<\d+:\d+(?:\.\d+)?>)", text):
+                m = WORD_TAG.fullmatch(part)
+                if m:
+                    stamp = int(m.group(1)) * 60 + float(m.group(2))
+                    continue
+                for w in part.split():
+                    out.append((stamp, w))
+            continue
+        words = text.split()
+        if not words:
+            out.append((t0, "♪"))
+            continue
+        span = max(0.1, min((t1 - t0) * 0.9, len(words) * WORD_PACE))
+        weights = [len(w) + 2 for w in words]
+        total, acc = sum(weights), 0
+        for w, wt in zip(words, weights):
+            out.append((t0 + span * acc / total, w))
+            acc += wt
+        if t1 - (t0 + span) > 3.0:  # long gap after the line: show a note
+            out.append((t0 + span + 1.0, "♪"))
     out.sort(key=lambda x: x[0])
     return out
 
@@ -140,8 +180,7 @@ def fetch(artist, title, album="", duration=0):
     path = _cache_path(artist, title)
     cached = _cache_read(path)
     if cached is not None:
-        return Lyrics("cache" if cached["found"] else "none",
-                      parse_lrc(cached["synced"]), cached["plain"])
+        return Lyrics("cache" if cached["found"] else "none", cached["synced"], cached["plain"])
     try:
         found = _lookup(artist, title, album, duration)
     except (OSError, ValueError) as e:  # network/JSON errors: don't cache
@@ -152,4 +191,4 @@ def fetch(artist, title, album="", duration=0):
         _cache_write(path, synced, plain)
     except OSError as e:
         debug(f"cache write failed: {e}")
-    return Lyrics(source, parse_lrc(synced), plain)
+    return Lyrics(source, synced, plain)

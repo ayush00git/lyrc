@@ -1,4 +1,4 @@
-"""Fullscreen black window: synced lyrics, plain lyrics, or a status message."""
+"""Fullscreen black window: synced lyrics (word or line view), plain lyrics, or a message."""
 
 import bisect
 
@@ -12,8 +12,8 @@ window.lyrics, window.lyrics scrolledwindow, window.lyrics viewport { background
 .lyrics label.line { color: rgba(255,255,255,0.28); transition: color 250ms ease-out; }
 .lyrics label.line.current { color: #ffffff; }
 .lyrics label.plain { color: #ffffff; }
-.lyrics label.dim { color: rgba(255,255,255,0.45); font-weight: 600; }
 """
+WORD_FADE_MS = 90
 
 
 def _add_css(text, provider=None):
@@ -39,18 +39,33 @@ class LyricsWindow(Gtk.ApplicationWindow):
 
         self.message = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER,
                                  valign=Gtk.Align.CENTER)
+        # Line view: a scrolling column of labels.
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
                                            vscrollbar_policy=Gtk.PolicyType.EXTERNAL)
         self.scroller.set_child(self.box)
+        # Word view: two labels that crossfade, one word at a time.
+        self.word_stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE,
+                                    transition_duration=WORD_FADE_MS)
+        self.word_labels = []
+        for name in ("a", "b"):
+            label = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER)
+            label.add_css_class("word")
+            self.word_stack.add_named(label, name)
+            self.word_labels.append(label)
+
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.stack.add_named(self.message, "message")
         self.stack.add_named(self.scroller, "lyrics")
+        self.stack.add_named(self.word_stack, "words")
         self.set_child(self.stack)
 
+        self.word_mode = True  # 'l' toggles
         self.lines = []        # [(seconds, Gtk.Label)] in synced mode
+        self.words = []        # [(seconds, word)]
         self.current = -1
-        self.target = None     # scroll target (synced mode)
+        self.current_word = -2
+        self.target = None     # scroll target (line view)
         self.time_source = None
         self.last_height = 0
         self.last_frame = None
@@ -67,7 +82,8 @@ class LyricsWindow(Gtk.ApplicationWindow):
     def _clear(self):
         while (child := self.box.get_first_child()):
             self.box.remove(child)
-        self.lines, self.current, self.target, self.time_source = [], -1, None, None
+        self.lines, self.words, self.time_source = [], [], None
+        self.current, self.current_word, self.target = -1, -2, None
         self.scroller.get_vadjustment().set_value(0)
 
     def show_message(self, text, sub=""):
@@ -78,7 +94,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
         self.message.set_markup(markup)
         self.stack.set_visible_child_name("message")
 
-    def show_synced(self, lines, time_source):
+    def show_synced(self, lines, words, time_source):
         self._clear()
         for t, text in lines:
             label = Gtk.Label(label=text or "♪", wrap=True, justify=Gtk.Justification.CENTER)
@@ -86,9 +102,18 @@ class LyricsWindow(Gtk.ApplicationWindow):
             self.box.append(label)
             self.lines.append((t, label))
         self.times = [t for t, _ in self.lines]
+        self.words = words
+        self.word_times = [t for t, _ in words]
         self.time_source = time_source
         self.last_height = 0  # force padding update
-        self.stack.set_visible_child_name("lyrics")
+        self._show_synced_view()
+
+    def _show_synced_view(self):
+        use_words = self.word_mode and self.words
+        self.stack.set_visible_child_name("words" if use_words else "lyrics")
+        for _, label in self.lines:
+            label.remove_css_class("current")
+        self.current, self.current_word, self.target = -1, -2, None
 
     def show_plain(self, text):
         self._clear()
@@ -106,29 +131,24 @@ class LyricsWindow(Gtk.ApplicationWindow):
             self.last_height = h
             _add_css(f".lyrics label {{ font-size: {max(16, h // 16)}px; }}"
                      f".lyrics label.line {{ margin: {h // 70}px {w // 16}px; }}"
-                     f".lyrics label.plain {{ margin: {h // 8}px {w // 16}px; }}",
+                     f".lyrics label.plain {{ margin: {h // 8}px {w // 16}px; }}"
+                     f".lyrics label.word {{ font-size: {max(24, h // 6)}px; margin: 0 {w // 20}px; }}",
                      self.font_css)
             pad = h // 2 if self.lines else 0
             self.box.set_margin_top(pad)
             self.box.set_margin_bottom(pad)
-            self.current = -1  # recompute scroll target
+            self.target = None  # recompute scroll target
 
         if self.time_source:
-            i = bisect.bisect_right(self.times, self.time_source()) - 1
-            if i != self.current:
-                if 0 <= self.current < len(self.lines):
-                    self.lines[self.current][1].remove_css_class("current")
-                if i >= 0:
-                    self.lines[i][1].add_css_class("current")
-                    debug(f"line {i}: {self.lines[i][1].get_label()!r}")
-                self.current = i
-                self.target = None
-            if self.target is None:  # None until layout is done
-                self.target = self._center_of(max(i, 0))
+            now = self.time_source()
+            if self.stack.get_visible_child_name() == "words":
+                self._update_word(now)
+            else:
+                self._update_line(now)
 
-        now = frame_clock.get_frame_time() / 1e6
-        dt = min(0.1, now - self.last_frame) if self.last_frame else 0.016
-        self.last_frame = now
+        t = frame_clock.get_frame_time() / 1e6
+        dt = min(0.1, t - self.last_frame) if self.last_frame else 0.016
+        self.last_frame = t
         if self.target is not None:
             adj = self.scroller.get_vadjustment()
             v = adj.get_value()
@@ -136,18 +156,49 @@ class LyricsWindow(Gtk.ApplicationWindow):
             adj.set_value(self.target if abs(self.target - v) < 0.5 else v + step)
         return True
 
+    def _update_word(self, now):
+        i = bisect.bisect_right(self.word_times, now) - 1
+        if i == self.current_word:
+            return
+        self.current_word = i
+        text = self.words[i][1] if i >= 0 else "♪"
+        # Put the word on the hidden label, then crossfade to it.
+        hidden = "b" if self.word_stack.get_visible_child_name() == "a" else "a"
+        self.word_stack.get_child_by_name(hidden).set_label(text)
+        self.word_stack.set_visible_child_name(hidden)
+
+    def _update_line(self, now):
+        i = bisect.bisect_right(self.times, now) - 1
+        if i != self.current:
+            if 0 <= self.current < len(self.lines):
+                self.lines[self.current][1].remove_css_class("current")
+            if i >= 0:
+                self.lines[i][1].add_css_class("current")
+                debug(f"line {i}: {self.lines[i][1].get_label()!r}")
+            self.current = i
+            self.target = None
+        if self.target is None and self.lines:  # None until layout is done
+            self.target = self._center_of(max(i, 0))
+
     def _center_of(self, i):
-        label = self.lines[i][1]
-        ok, rect = label.compute_bounds(self.box)
+        """Scroll value that puts line i in the middle of the screen."""
+        ok, rect = self.lines[i][1].compute_bounds(self.box)
         if not ok:
             return None
-        return rect.origin.y + rect.size.height / 2 - self.scroller.get_height() / 2
+        # Bounds are relative to the box, but scrolling counts its top margin too.
+        y = self.box.get_margin_top() + rect.origin.y + rect.size.height / 2
+        return y - self.scroller.get_height() / 2
 
     # ---- keys ----
 
     def on_key(self, _ctrl, keyval, _code, _state):
         if keyval in (Gdk.KEY_Escape, Gdk.KEY_q, Gdk.KEY_Q):
             self.get_application().quit()
+            return True
+        if keyval in (Gdk.KEY_l, Gdk.KEY_L) and self.time_source:
+            self.word_mode = not self.word_mode
+            debug(f"view: {'words' if self.word_mode else 'lines'}")
+            self._show_synced_view()
             return True
         steps = {Gdk.KEY_Up: -0.08, Gdk.KEY_Down: 0.08, Gdk.KEY_k: -0.08, Gdk.KEY_j: 0.08,
                  Gdk.KEY_Page_Up: -0.8, Gdk.KEY_Page_Down: 0.8, Gdk.KEY_space: 0.8}
@@ -156,4 +207,3 @@ class LyricsWindow(Gtk.ApplicationWindow):
             adj.set_value(adj.get_value() + steps[keyval] * adj.get_page_size())
             return True
         return False
-
