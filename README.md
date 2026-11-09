@@ -39,18 +39,6 @@ This copies the app to `~/.local/share/lyrics-overlay` and links the command int
 `~/.local/bin` (no root needed). Make sure `~/.local/bin` is in your `PATH`.
 To uninstall, run `rm -rf ~/.local/share/lyrics-overlay ~/.local/bin/lyrics-overlay`.
 
-## Screenshots
-
-| Word view (default) | Shift+3: three words at a time |
-|---|---|
-| ![Word view](docs/word-view.png) | ![Three words](docs/three-words.png) |
-| **Line view (`l`)** | **Light mode (double-tap Shift)** |
-| ![Line view](docs/line-view.png) | ![Light mode](docs/light-mode.png) |
-| **Clock (Shift+C)** | **Clock, light mode** |
-| ![Clock](docs/clock.png) | ![Clock, light mode](docs/clock-light.png) |
-
-<sub>Rendered by the app itself (with sample lyrics).</sub>
-
 ## Keyboard shortcut
 
 Use the full path, since shortcuts don't always see your shell's `PATH`:
@@ -80,6 +68,18 @@ since apps use it (browser address bar, clearing the terminal).
 
 **KDE Plasma:** System Settings → Keyboard → Shortcuts → **Add New** → **Command or Script**.
 Enter the path above, then assign a key.
+
+## Screenshots
+
+| Word view (default) | Shift+3: three words at a time |
+|---|---|
+| ![Word view](docs/word-view.png) | ![Three words](docs/three-words.png) |
+| **Line view (`l`)** | **Light mode (double-tap Shift)** |
+| ![Line view](docs/line-view.png) | ![Light mode](docs/light-mode.png) |
+| **Clock (Shift+C)** | **Clock, light mode** |
+| ![Clock](docs/clock.png) | ![Clock, light mode](docs/clock-light.png) |
+
+<sub>Rendered by the app itself (with sample lyrics).</sub>
 
 ## Troubleshooting
 
