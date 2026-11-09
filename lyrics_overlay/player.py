@@ -42,6 +42,7 @@ class PlayerWatcher:
         self.name = None
         self.status = "Stopped"
         self.track = None
+        self.seek_pos = None  # position from the last Seeked signal
 
         self.bus.signal_subscribe(
             "org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged",
@@ -119,7 +120,8 @@ class PlayerWatcher:
 
     def _on_seeked(self, _bus, sender, _path, _iface, _sig, params):
         if self._name_for(sender) == self.name:
-            debug(f"seeked to {params.unpack()[0] / 1e6:.1f}s")
+            self.seek_pos = params.unpack()[0] / 1e6
+            debug(f"seeked to {self.seek_pos:.1f}s")
             self.on_event(self, "seek")
 
     # ---- selection ----
