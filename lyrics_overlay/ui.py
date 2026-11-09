@@ -2,7 +2,7 @@
 
 import bisect
 
-from gi.repository import Gdk, GLib, Gtk
+from gi.repository import Gdk, GLib, Gtk, Pango
 
 from . import settings
 from .log import debug
@@ -16,7 +16,7 @@ window.lyrics, window.lyrics scrolledwindow, window.lyrics viewport { background
 .lyrics label.hint { color: rgba(255,255,255,0.6); font-size: 20px; font-weight: 600;
                      background: rgba(255,255,255,0.08); border-radius: 12px; padding: 6px 16px; }
 """
-WORD_FADE_MS = 90
+WORD_FADE_S = 0.09  # quick fade-in for each new word
 
 
 def _add_css(text, provider=None):
@@ -35,8 +35,6 @@ class LyricsWindow(Gtk.ApplicationWindow):
         # USER + 1 so a theme in ~/.config/gtk-4.0/gtk.css can't override us.
         prio = Gtk.STYLE_PROVIDER_PRIORITY_USER + 1
         Gtk.StyleContext.add_provider_for_display(display, _add_css(CSS), prio)
-        self.font_css = Gtk.CssProvider()
-        Gtk.StyleContext.add_provider_for_display(display, self.font_css, prio)
         self.add_css_class("lyrics")
         self.set_cursor_from_name("none")
 
@@ -47,20 +45,16 @@ class LyricsWindow(Gtk.ApplicationWindow):
         self.scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
                                            vscrollbar_policy=Gtk.PolicyType.EXTERNAL)
         self.scroller.set_child(self.box)
-        # Word view: two labels that crossfade, one word at a time.
-        self.word_stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE,
-                                    transition_duration=WORD_FADE_MS)
-        self.word_labels = []
-        for name in ("a", "b"):
-            label = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER)
-            label.add_css_class("word")
-            self.word_stack.add_named(label, name)
-            self.word_labels.append(label)
+        # Word view: one label; each new word fades in quickly (see on_tick).
+        # A single label on purpose: GTK can leave a hidden label at a stale font size.
+        self.word_label = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER)
+        self.word_label.add_css_class("word")
+        self.word_shown_at = None
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.stack.add_named(self.message, "message")
         self.stack.add_named(self.scroller, "lyrics")
-        self.stack.add_named(self.word_stack, "words")
+        self.stack.add_named(self.word_label, "words")
         # Small hint at the bottom when a setting changes ("Size 120%").
         self.hint = Gtk.Label(halign=Gtk.Align.CENTER, valign=Gtk.Align.END,
                               margin_bottom=40, visible=False)
@@ -141,6 +135,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
         for _, label in self.lines:
             label.remove_css_class("current")
         self.current, self.current_word, self.target = -1, -2, None
+        self.last_height = 0
 
     def show_plain(self, text):
         self._clear()
@@ -156,12 +151,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
         h, w = self.get_height(), self.get_width()
         if h and h != self.last_height:
             self.last_height = h
-            k = self.prefs["font_scale"]
-            _add_css(f".lyrics label {{ font-size: {max(12, int(h / 16 * k))}px; }}"
-                     f".lyrics label.line {{ margin: {h // 70}px {w // 16}px; }}"
-                     f".lyrics label.plain {{ margin: {h // 8}px {w // 16}px; }}"
-                     f".lyrics label.word {{ font-size: {max(16, int(h / 6 * k))}px; margin: 0 {w // 20}px; }}",
-                     self.font_css)
+            self._apply_sizes(w, h)
             pad = h // 2 if self.lines else 0
             self.box.set_margin_top(pad)
             self.box.set_margin_bottom(pad)
@@ -175,6 +165,13 @@ class LyricsWindow(Gtk.ApplicationWindow):
                 self._update_line(now)
 
         t = frame_clock.get_frame_time() / 1e6
+        if self.word_shown_at is not None:
+            if self.word_shown_at < 0:  # word changed: start fade on this frame
+                self.word_shown_at = t
+            p = min(1.0, (t - self.word_shown_at) / WORD_FADE_S)
+            self.word_label.set_opacity(0.2 + 0.8 * p)
+            if p >= 1.0:
+                self.word_shown_at = None
         dt = min(0.1, t - self.last_frame) if self.last_frame else 0.016
         self.last_frame = t
         if self.target is not None:
@@ -184,16 +181,37 @@ class LyricsWindow(Gtk.ApplicationWindow):
             adj.set_value(self.target if abs(self.target - v) < 0.5 else v + step)
         return True
 
+    def _apply_sizes(self, w, h):
+        """Set font size and margins directly on every label. (Not via CSS:
+        GTK can leave hidden widgets at a stale CSS font size.)"""
+        k = self.prefs["font_scale"]
+        text_px, word_px = max(12, h / 16 * k), max(16, h / 6 * k)
+
+        def size(label, px, vmargin, hmargin):
+            attrs = Pango.AttrList()
+            attrs.insert(Pango.attr_size_new_absolute(int(px * Pango.SCALE)))
+            label.set_attributes(attrs)
+            label.set_margin_top(vmargin)
+            label.set_margin_bottom(vmargin)
+            label.set_margin_start(hmargin)
+            label.set_margin_end(hmargin)
+
+        size(self.message, text_px, 0, w // 16)
+        size(self.word_label, word_px, 0, w // 20)
+        for _, label in self.lines:
+            size(label, text_px, h // 70, w // 16)
+        plain = self.box.get_first_child()
+        if plain is not None and plain.has_css_class("plain"):
+            size(plain, text_px, h // 8, w // 16)
+
     def _update_word(self, now):
         i = bisect.bisect_right(self.chunk_times, now) - 1
         if i == self.current_word:
             return
         self.current_word = i
         text = self.chunks[i][1] if i >= 0 else "♪"
-        # Put the word on the hidden label, then crossfade to it.
-        hidden = "b" if self.word_stack.get_visible_child_name() == "a" else "a"
-        self.word_stack.get_child_by_name(hidden).set_label(text)
-        self.word_stack.set_visible_child_name(hidden)
+        self.word_label.set_label(text)
+        self.word_shown_at = -1
 
     def _update_line(self, now):
         i = bisect.bisect_right(self.times, now) - 1
@@ -243,7 +261,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
             k = self.prefs["font_scale"] * (1.1 if keyval == Gdk.KEY_Up else 1 / 1.1)
             k = round(min(3.0, max(0.4, k)), 3)
             self._set("font_scale", k, f"Size {round(k * 100)}%")
-            self.last_height = 0  # re-apply CSS and re-center on next frame
+            self.last_height = 0  # re-apply sizes and re-center on next frame
             return True
         # Shift+1..9: words at once. Look up the unshifted key so it works on any layout.
         if state & Gdk.ModifierType.SHIFT_MASK:
