@@ -1,6 +1,6 @@
 import threading
 
-from gi.repository import GLib, Gtk
+from gi.repository import Gio, GLib, Gtk
 
 from . import lyrics
 from .clock import SyncClock
@@ -11,6 +11,11 @@ from .ui import LyricsWindow
 
 APP_ID = "io.github.lyricsoverlay"
 POLL_MS = 2000
+# Screen-awake services we call directly if GTK's own inhibit doesn't work.
+SERVICES = {
+    "gnome": ("org.gnome.SessionManager", "/org/gnome/SessionManager"),
+    "ss": ("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver"),
+}
 
 
 class App(Gtk.Application):
@@ -23,6 +28,7 @@ class App(Gtk.Application):
         self.watcher = None
         self.clock = SyncClock()
         self.song = None      # (artist, title) currently shown/loading
+        self.awake = None   # how we keep the screen awake: ("gtk", cookie) / ("ss", cookie)
 
     def do_activate(self):
         if self.window is not None:
@@ -41,6 +47,7 @@ class App(Gtk.Application):
 
     def on_player_event(self, w, kind):
         playing = w.status == "Playing"
+        self.keep_awake(playing)
         if kind == "none" or w.track is None:
             self.song = None
             self.window.show_message("Waiting for a player…")
@@ -87,6 +94,49 @@ class App(Gtk.Application):
         else:
             self.window.show_message("No lyrics found", f"{artist} — {title}")
         return False
+
+    # ---- keep the screen awake while music plays ----
+
+    def keep_awake(self, on):
+        if on == (self.awake is not None):
+            return
+        if not on:
+            how, cookie = self.awake
+            if how == "gtk":
+                self.uninhibit(cookie)
+            else:
+                self._call(*SERVICES[how], "Uninhibit" if how == "gnome" else "UnInhibit",
+                           GLib.Variant("(u)", (cookie,)))
+            self.awake = None
+            debug("screen idle: allowed (paused)")
+            return
+        # GNOME session manager or the desktop portal (KDE etc.), via GTK.
+        cookie = self.inhibit(self.window, Gtk.ApplicationInhibitFlags.IDLE, "Showing lyrics")
+        if cookie:
+            self.awake = ("gtk", cookie)
+            debug("screen idle: inhibited (gtk)")
+            return
+        # Fallbacks, called directly. Both are released automatically on exit.
+        attempts = {
+            "gnome": GLib.Variant("(susu)", ("lyrics-overlay", 0, "Showing lyrics", 8)),  # 8 = idle
+            "ss": GLib.Variant("(ss)", ("lyrics-overlay", "Showing lyrics")),
+        }
+        for how, args in attempts.items():
+            res = self._call(*SERVICES[how], "Inhibit", args)
+            if res:
+                self.awake = (how, res[0])
+                debug(f"screen idle: inhibited ({SERVICES[how][0]})")
+                return
+        debug("screen idle: could not inhibit (no session manager, portal or screensaver API)")
+
+    def _call(self, name, path, method, args):
+        try:
+            return Gio.bus_get_sync(Gio.BusType.SESSION).call_sync(
+                name, path, name, method, args, None,
+                Gio.DBusCallFlags.NONE, 1000, None).unpack()
+        except GLib.Error as e:
+            debug(f"{name}.{method} failed: {e.message}")
+            return None
 
     # ---- periodic drift check ----
 

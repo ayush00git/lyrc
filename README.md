@@ -14,6 +14,7 @@ on Wayland and X11. Lyrics come from [LRCLIB](https://lrclib.net), with no API k
 - Plain (untimed) lyrics scroll with **j/k**, **PgUp/PgDn**, **Space** or the mouse wheel.
 - Size, words-at-once, view and colors are remembered in `~/.config/lyrics-overlay/settings.json`.
 - Lyrics are cached in `~/.cache/lyrics-overlay/`.
+- While music is playing, the screen won't dim or lock. Pausing gives normal idle back.
 - There's no background process; it exits fully when closed.
 
 ## Install
