@@ -4,6 +4,7 @@ import bisect
 
 from gi.repository import Gdk, GLib, Gtk
 
+from . import settings
 from .log import debug
 
 CSS = """
@@ -12,6 +13,8 @@ window.lyrics, window.lyrics scrolledwindow, window.lyrics viewport { background
 .lyrics label.line { color: rgba(255,255,255,0.28); transition: color 250ms ease-out; }
 .lyrics label.line.current { color: #ffffff; }
 .lyrics label.plain { color: #ffffff; }
+.lyrics label.hint { color: rgba(255,255,255,0.6); font-size: 20px; font-weight: 600;
+                     background: rgba(255,255,255,0.08); border-radius: 12px; padding: 6px 16px; }
 """
 WORD_FADE_MS = 90
 
@@ -58,9 +61,17 @@ class LyricsWindow(Gtk.ApplicationWindow):
         self.stack.add_named(self.message, "message")
         self.stack.add_named(self.scroller, "lyrics")
         self.stack.add_named(self.word_stack, "words")
-        self.set_child(self.stack)
+        # Small hint at the bottom when a setting changes ("Size 120%").
+        self.hint = Gtk.Label(halign=Gtk.Align.CENTER, valign=Gtk.Align.END,
+                              margin_bottom=40, visible=False)
+        self.hint.add_css_class("hint")
+        self.hint_timer = 0
+        overlay = Gtk.Overlay(child=self.stack)
+        overlay.add_overlay(self.hint)
+        self.set_child(overlay)
 
-        self.word_mode = True  # 'l' toggles
+        self.prefs = settings.load()
+        self.word_mode = self.prefs["word_mode"]  # 'l' toggles
         self.lines = []        # [(seconds, Gtk.Label)] in synced mode
         self.words = []        # [(seconds, word)]
         self.current = -1
@@ -103,10 +114,26 @@ class LyricsWindow(Gtk.ApplicationWindow):
             self.lines.append((t, label))
         self.times = [t for t, _ in self.lines]
         self.words = words
-        self.word_times = [t for t, _ in words]
+        self._build_chunks()
         self.time_source = time_source
         self.last_height = 0  # force padding update
         self._show_synced_view()
+
+    def _build_chunks(self):
+        """Group words N at a time (Shift+N), never across a line break."""
+        n = self.prefs["words_at_once"]
+        groups = []  # [(start, line index, [words])]
+        for t, w in self.words:
+            li = bisect.bisect_right(self.times, t + 1e-6) - 1
+            last = groups[-1] if groups else None
+            if (last and last[1] == li and len(last[2]) < n
+                    and w != "♪" and last[2][-1] != "♪"):
+                last[2].append(w)
+            else:
+                groups.append((t, li, [w]))
+        self.chunks = [(t, " ".join(ws)) for t, _, ws in groups]
+        self.chunk_times = [t for t, _ in self.chunks]
+        self.current_word = -2
 
     def _show_synced_view(self):
         use_words = self.word_mode and self.words
@@ -129,10 +156,11 @@ class LyricsWindow(Gtk.ApplicationWindow):
         h, w = self.get_height(), self.get_width()
         if h and h != self.last_height:
             self.last_height = h
-            _add_css(f".lyrics label {{ font-size: {max(16, h // 16)}px; }}"
+            k = self.prefs["font_scale"]
+            _add_css(f".lyrics label {{ font-size: {max(12, int(h / 16 * k))}px; }}"
                      f".lyrics label.line {{ margin: {h // 70}px {w // 16}px; }}"
                      f".lyrics label.plain {{ margin: {h // 8}px {w // 16}px; }}"
-                     f".lyrics label.word {{ font-size: {max(24, h // 6)}px; margin: 0 {w // 20}px; }}",
+                     f".lyrics label.word {{ font-size: {max(16, int(h / 6 * k))}px; margin: 0 {w // 20}px; }}",
                      self.font_css)
             pad = h // 2 if self.lines else 0
             self.box.set_margin_top(pad)
@@ -157,11 +185,11 @@ class LyricsWindow(Gtk.ApplicationWindow):
         return True
 
     def _update_word(self, now):
-        i = bisect.bisect_right(self.word_times, now) - 1
+        i = bisect.bisect_right(self.chunk_times, now) - 1
         if i == self.current_word:
             return
         self.current_word = i
-        text = self.words[i][1] if i >= 0 else "♪"
+        text = self.chunks[i][1] if i >= 0 else "♪"
         # Put the word on the hidden label, then crossfade to it.
         hidden = "b" if self.word_stack.get_visible_child_name() == "a" else "a"
         self.word_stack.get_child_by_name(hidden).set_label(text)
@@ -191,16 +219,49 @@ class LyricsWindow(Gtk.ApplicationWindow):
 
     # ---- keys ----
 
-    def on_key(self, _ctrl, keyval, _code, _state):
+    def _set(self, key, value, hint):
+        self.prefs[key] = value
+        settings.save(self.prefs)
+        debug(f"setting {key}={value}")
+        self.hint.set_label(hint)
+        self.hint.set_visible(True)
+        if self.hint_timer:
+            GLib.source_remove(self.hint_timer)
+        self.hint_timer = GLib.timeout_add(1200, self._hide_hint)
+
+    def _hide_hint(self):
+        self.hint.set_visible(False)
+        self.hint_timer = 0
+        return False
+
+    def on_key(self, ctrl, keyval, code, state):
         if keyval in (Gdk.KEY_Escape, Gdk.KEY_q, Gdk.KEY_Q):
             self.get_application().quit()
             return True
+        # Up/Down: font size.
+        if keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
+            k = self.prefs["font_scale"] * (1.1 if keyval == Gdk.KEY_Up else 1 / 1.1)
+            k = round(min(3.0, max(0.4, k)), 3)
+            self._set("font_scale", k, f"Size {round(k * 100)}%")
+            self.last_height = 0  # re-apply CSS and re-center on next frame
+            return True
+        # Shift+1..9: words at once. Look up the unshifted key so it works on any layout.
+        if state & Gdk.ModifierType.SHIFT_MASK:
+            ok, base, *_ = self.get_display().translate_key(code, 0, ctrl.get_group())
+            if ok and Gdk.KEY_1 <= base <= Gdk.KEY_9:
+                n = base - Gdk.KEY_0
+                self._set("words_at_once", n, f"{n} word{'s' if n > 1 else ''} at a time")
+                if self.words:
+                    self._build_chunks()
+                return True
         if keyval in (Gdk.KEY_l, Gdk.KEY_L) and self.time_source:
             self.word_mode = not self.word_mode
+            self.prefs["word_mode"] = self.word_mode
+            settings.save(self.prefs)
             debug(f"view: {'words' if self.word_mode else 'lines'}")
             self._show_synced_view()
             return True
-        steps = {Gdk.KEY_Up: -0.08, Gdk.KEY_Down: 0.08, Gdk.KEY_k: -0.08, Gdk.KEY_j: 0.08,
+        steps = {Gdk.KEY_k: -0.08, Gdk.KEY_j: 0.08,
                  Gdk.KEY_Page_Up: -0.8, Gdk.KEY_Page_Down: 0.8, Gdk.KEY_space: 0.8}
         if keyval in steps and not self.time_source:
             adj = self.scroller.get_vadjustment()
