@@ -48,8 +48,20 @@ def clean(player, artist, title, album="", url=""):
     if is_clean_source(player, album, url):
         return artist.strip(), title.strip()
 
-    artist, title = clean_artist(artist), title
+    channel = clean_artist(artist)
+    artist = channel
     parts = DASH.split(title, maxsplit=1)
     if len(parts) == 2 and not VERSION.match(clean_title(parts[1]) or parts[1]):
-        artist, title = clean_artist(parts[0]), parts[1]
+        left, right = clean_artist(parts[0]), clean_title(parts[1])
+        # Usually "Artist - Song", but some channels post "Song - Artist".
+        if _same(right, channel) and not _same(left, channel):
+            left, right = right, clean_title(parts[0])
+        artist, title = left, right
     return _tidy(FEAT.sub("", artist)) or artist, clean_title(title)
+
+
+def _same(a, b):
+    """Loose match: 'SUKHA' ~ 'Sukha', 'Rick Astley' ~ 'RickAstley'."""
+    norm = lambda s: re.sub(r"[^a-z0-9]", "", s.lower())
+    a, b = norm(a), norm(b)
+    return bool(a and b) and (a == b or a.startswith(b) or b.startswith(a))

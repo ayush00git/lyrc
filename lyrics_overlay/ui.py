@@ -14,7 +14,7 @@ def load_css():
         provider.load_from_data(CSS.encode(), -1)  # older GTK 4
     Gtk.StyleContext.add_provider_for_display(
         Gdk.Display.get_default(), provider,
-        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)  # beat ~/.config/gtk-4.0/gtk.css themes
 
 
 class LyricsWindow(Gtk.ApplicationWindow):

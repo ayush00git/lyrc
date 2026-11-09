@@ -31,6 +31,9 @@ class TestClean(unittest.TestCase):
             ("Artist Official", "Track", ("Artist", "Track")),
             ("Uploader", 'Adele - "Hello"', ("Adele", "Hello")),
             ("Uploader", "Drake ft. Rihanna - Take Care", ("Drake", "Take Care")),
+            # "Song - Artist | credits" from the artist's own channel
+            ("SUKHA", "JANU JANU - SUKHA | PRODGK | CHINNA (OFFICIAL VIDEO)", ("SUKHA", "JANU JANU")),
+            ("Coldplay", "Coldplay - Coldplay Song", ("Coldplay", "Coldplay Song")),
         ]
         for artist, title, expected in cases:
             with self.subTest(title=title):
