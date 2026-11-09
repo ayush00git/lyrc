@@ -5,6 +5,7 @@ import bisect
 from gi.repository import Gdk, GLib, Gtk, Pango
 
 from . import settings
+from .clockface import ClockFace
 from .log import debug
 
 CSS = """
@@ -64,6 +65,10 @@ class LyricsWindow(Gtk.ApplicationWindow):
         self.stack.add_named(self.message, "message")
         self.stack.add_named(self.scroller, "lyrics")
         self.stack.add_named(self.word_label, "words")
+        self.clockface = ClockFace()
+        self.stack.add_named(self.clockface, "clock")
+        self.page = "message"   # lyrics page to show when the clock is off
+        self.clock_mode = False  # Shift+C toggles
         # Small hint at the bottom when a setting changes ("Size 120%").
         self.hint = Gtk.Label(halign=Gtk.Align.CENTER, valign=Gtk.Align.END,
                               margin_bottom=40, visible=False)
@@ -77,6 +82,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
         self.word_mode = self.prefs["word_mode"]  # 'l' toggles
         if self.prefs["inverted"]:
             self.add_css_class("inverted")
+        self.clockface.inverted = self.prefs["inverted"]
         self.shift_clean = False  # Shift is down and no other key was pressed
         self.last_shift_tap = 0.0
         self.lines = []        # [(seconds, Gtk.Label)] in synced mode
@@ -105,13 +111,29 @@ class LyricsWindow(Gtk.ApplicationWindow):
         self.current, self.current_word, self.target = -1, -2, None
         self.scroller.get_vadjustment().set_value(0)
 
+    def _show_page(self, name):
+        """Switch lyrics page; while the clock is on, just remember it."""
+        self.page = name
+        if not self.clock_mode:
+            self.stack.set_visible_child_name(name)
+
+    def toggle_clock(self):
+        self.clock_mode = not self.clock_mode
+        self.stack.set_visible_child_name("clock" if self.clock_mode else self.page)
+        self.current, self.current_word, self.target = -1, -2, None
+        self.last_height = 0
+        for _, label in self.lines:
+            label.remove_css_class("current")
+        self._set_hint("Clock" if self.clock_mode else "Lyrics")
+        self.get_application().refresh_awake()
+
     def show_message(self, text, sub=""):
         self._clear()
         markup = GLib.markup_escape_text(text)
         if sub:
             markup += f"\n<span size='60%' alpha='50%'>{GLib.markup_escape_text(sub)}</span>"
         self.message.set_markup(markup)
-        self.stack.set_visible_child_name("message")
+        self._show_page("message")
 
     def show_synced(self, lines, words, time_source):
         self._clear()
@@ -145,7 +167,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
 
     def _show_synced_view(self):
         use_words = self.word_mode and self.words
-        self.stack.set_visible_child_name("words" if use_words else "lyrics")
+        self._show_page("words" if use_words else "lyrics")
         for _, label in self.lines:
             label.remove_css_class("current")
         self.current, self.current_word, self.target = -1, -2, None
@@ -157,7 +179,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
         label.add_css_class("plain")
         self.box.append(label)
         self.last_height = 0
-        self.stack.set_visible_child_name("lyrics")
+        self._show_page("lyrics")
 
     # ---- animation ----
 
@@ -173,10 +195,14 @@ class LyricsWindow(Gtk.ApplicationWindow):
 
         if self.time_source:
             now = self.time_source()
-            if self.stack.get_visible_child_name() == "words":
+            if self.clock_mode:
+                pass
+            elif self.page == "words":
                 self._update_word(now)
             else:
                 self._update_line(now)
+        if self.clock_mode:
+            self.clockface.queue_draw()  # redraw every frame: smooth seconds sweep
 
         t = frame_clock.get_frame_time() / 1e6
         if self.word_shown_at is not None:
@@ -255,6 +281,9 @@ class LyricsWindow(Gtk.ApplicationWindow):
         self.prefs[key] = value
         settings.save(self.prefs)
         debug(f"setting {key}={value}")
+        self._set_hint(hint)
+
+    def _set_hint(self, hint):
         self.hint.set_label(hint)
         self.hint.set_visible(True)
         if self.hint_timer:
@@ -276,6 +305,7 @@ class LyricsWindow(Gtk.ApplicationWindow):
             self.last_shift_tap = 0.0
             inverted = not self.prefs["inverted"]
             (self.add_css_class if inverted else self.remove_css_class)("inverted")
+            self.clockface.inverted = inverted
             self._set("inverted", inverted, "Light mode" if inverted else "Dark mode")
         else:
             self.last_shift_tap = now
@@ -295,9 +325,12 @@ class LyricsWindow(Gtk.ApplicationWindow):
             self._set("font_scale", k, f"Size {round(k * 100)}%")
             self.last_height = 0  # re-apply sizes and re-center on next frame
             return True
-        # Shift+1..9: words at once. Look up the unshifted key so it works on any layout.
+        # Shift+1..9: words at once; Shift+C: clock. Look up the unshifted key so it works on any layout.
         if state & Gdk.ModifierType.SHIFT_MASK:
             ok, base, *_ = self.get_display().translate_key(code, 0, ctrl.get_group())
+            if (ok and base == Gdk.KEY_c) or keyval == Gdk.KEY_C:
+                self.toggle_clock()
+                return True
             if ok and Gdk.KEY_1 <= base <= Gdk.KEY_9:
                 n = base - Gdk.KEY_0
                 self._set("words_at_once", n, f"{n} word{'s' if n > 1 else ''} at a time")

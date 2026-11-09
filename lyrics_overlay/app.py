@@ -47,7 +47,7 @@ class App(Gtk.Application):
 
     def on_player_event(self, w, kind):
         playing = w.status == "Playing"
-        self.keep_awake(playing)
+        self.refresh_awake(w)
         if kind == "none" or w.track is None:
             self.song = None
             self.window.show_message("Waiting for a player…")
@@ -97,6 +97,12 @@ class App(Gtk.Application):
 
     # ---- keep the screen awake while music plays ----
 
+    def refresh_awake(self, w=None):
+        """Screen stays awake while music plays, or while the clock is shown."""
+        w = w or self.watcher
+        playing = w is not None and w.name is not None and w.status == "Playing"
+        self.keep_awake(playing or (self.window is not None and self.window.clock_mode))
+
     def keep_awake(self, on):
         if on == (self.awake is not None):
             return
@@ -108,7 +114,7 @@ class App(Gtk.Application):
                 self._call(*SERVICES[how], "Uninhibit" if how == "gnome" else "UnInhibit",
                            GLib.Variant("(u)", (cookie,)))
             self.awake = None
-            debug("screen idle: allowed (paused)")
+            debug("screen idle: allowed")
             return
         # GNOME session manager or the desktop portal (KDE etc.), via GTK.
         cookie = self.inhibit(self.window, Gtk.ApplicationInhibitFlags.IDLE, "Showing lyrics")

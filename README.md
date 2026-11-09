@@ -11,6 +11,7 @@ on Wayland and X11. Lyrics come from [LRCLIB](https://lrclib.net), with no API k
 - **↑ / ↓**: bigger / smaller text.
 - **Shift+1 … Shift+9**: how many words to show at once in word view (default 1).
 - **Double-tap Shift**: swap to black text on white (and back).
+- **Shift+C**: full-screen clock instead of lyrics (and back). The screen stays awake while it's shown.
 - Plain (untimed) lyrics scroll with **j/k**, **PgUp/PgDn**, **Space** or the mouse wheel.
 - Size, words-at-once, view and colors are remembered in `~/.config/lyrics-overlay/settings.json`.
 - Lyrics are cached in `~/.cache/lyrics-overlay/`.
@@ -25,6 +26,8 @@ on Wayland and X11. Lyrics come from [LRCLIB](https://lrclib.net), with no API k
 | ![Word view](docs/word-view.png) | ![Three words](docs/three-words.png) |
 | **Line view (`l`)** | **Light mode (double-tap Shift)** |
 | ![Line view](docs/line-view.png) | ![Light mode](docs/light-mode.png) |
+| **Clock (Shift+C)** | |
+| ![Clock](docs/clock.png) | |
 
 <sub>Rendered by the app itself (with sample lyrics).</sub>
 
