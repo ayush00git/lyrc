@@ -31,18 +31,26 @@ class ClockFace(Gtk.DrawingArea):
             "bg": (1.0, 1.0, 1.0) if self.inverted else (0.0, 0.0, 0.0),
             "time": (*fg, 1.0),
             "date": (*fg, 0.45),
+            "seconds": (*fg, 0.55),
             "track": (*fg, 0.08),
             "arc": (*fg, 0.42),
             "dot": (*fg, 1.0),
         }
 
-    def _text(self, cr, text, px, weight, rgba, cx, cy):
+    def _layout(self, cr, text, px, weight):
         layout = PangoCairo.create_layout(cr)
         font = Pango.FontDescription.from_string("Sans")
         font.set_absolute_size(px * Pango.SCALE)
         font.set_weight(weight)
         layout.set_font_description(font)
+        attrs = Pango.AttrList()
+        attrs.insert(Pango.attr_font_features_new("tnum"))  # equal-width digits: no jitter
+        layout.set_attributes(attrs)
         layout.set_text(text, -1)
+        return layout
+
+    def _text(self, cr, text, px, weight, rgba, cx, cy):
+        layout = self._layout(cr, text, px, weight)
         _ink, logical = layout.get_pixel_extents()
         cr.set_source_rgba(*rgba)
         cr.move_to(cx - logical.width / 2, cy - logical.height / 2)
@@ -84,7 +92,21 @@ class ClockFace(Gtk.DrawingArea):
 
         fmt = "%I:%M" if self.twelve_hour else "%H:%M"
         time_text = now.format(fmt).lstrip("0") if self.twelve_hour else now.format(fmt)
-        self._text(cr, time_text, r * 0.42, Pango.Weight.HEAVY, c["time"], cx, cy - r * 0.06)
+        # Big HH:MM with smaller gray seconds beside it, sharing a baseline.
+        big = self._layout(cr, time_text, r * 0.42, Pango.Weight.HEAVY)
+        small = self._layout(cr, now.format("%S"), r * 0.17, Pango.Weight.BOLD)
+        big_w, big_h = big.get_pixel_size()
+        small_w = self._layout(cr, "00", r * 0.17, Pango.Weight.BOLD).get_pixel_size()[0]
+        gap = r * 0.04
+        x = cx - (big_w + gap + small_w) / 2
+        y = cy - r * 0.06 - big_h / 2
+        baseline = y + big.get_baseline() / Pango.SCALE
+        cr.set_source_rgba(*c["time"])
+        cr.move_to(x, y)
+        PangoCairo.show_layout(cr, big)
+        cr.set_source_rgba(*c["seconds"])
+        cr.move_to(x + big_w + gap, baseline - small.get_baseline() / Pango.SCALE)
+        PangoCairo.show_layout(cr, small)
         sub = now.format("%A, %-d %B")
         if self.twelve_hour:
             sub = now.format("%p") + "  ·  " + sub
