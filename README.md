@@ -17,6 +17,16 @@ on Wayland and X11. Lyrics come from [LRCLIB](https://lrclib.net), with no API k
 - While music is playing, the screen won't dim or lock. Pausing gives normal idle back.
 - There's no background process; it exits fully when closed.
 
+## Screenshots
+
+| Word view (default) | Shift+3: three words at a time |
+|---|---|
+| ![Word view](docs/word-view.png) | ![Three words](docs/three-words.png) |
+| **Line view (`l`)** | **Light mode (double-tap Shift)** |
+| ![Line view](docs/line-view.png) | ![Light mode](docs/light-mode.png) |
+
+<sub>Rendered by the app itself (with sample lyrics).</sub>
+
 ## Install
 
 Requires Python 3, GTK 4 and PyGObject.
